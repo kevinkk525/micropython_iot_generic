@@ -1,0 +1,4 @@
+[submodule "micropython_iot"]
+	path = micropython_iot
+	url = https://github.com/kevinkk525/micropython-iot.git
+	branch = generic_module
