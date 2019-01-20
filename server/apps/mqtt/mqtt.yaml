@@ -1,0 +1,4 @@
+module: mqtt
+class: Mqtt
+ident: 1
+instanced_app: true

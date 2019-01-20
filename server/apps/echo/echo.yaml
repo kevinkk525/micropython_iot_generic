@@ -1,0 +1,4 @@
+module: echo
+class: Echo
+ident: 0
+instanced_app: true

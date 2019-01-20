@@ -1,0 +1,5 @@
+#mqtt:
+#  host: host
+#  port: 8123
+#  user: user
+#  password: password
