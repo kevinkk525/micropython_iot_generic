@@ -1,4 +1,0 @@
-[submodule "micropython_iot"]
-	path = client/micropython_iot
-	url = https://github.com/kevinkk525/micropython-iot.git
-	branch = header
