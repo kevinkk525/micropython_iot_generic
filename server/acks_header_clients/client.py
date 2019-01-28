@@ -16,6 +16,8 @@ import asyncio
 log = logging.getLogger("Client")
 
 
+# TODO: implement multiple concurrent writes or mabye not as esp can't handle it anyway.
+
 # Create message ID's. Initially 0 then 1 2 ... 254 255 1 2
 def gmid():
     mid = 0
@@ -23,6 +25,20 @@ def gmid():
         yield mid
         mid = (mid + 1) & 0xff
         mid = mid if mid else 1
+
+
+# Return True if a message ID has not already been received
+def isnew(mid, lst=bytearray(32)):
+    if mid == -1:
+        for idx in range(32):
+            lst[idx] = 0
+        return
+    idx = mid >> 3
+    bit = 1 << (mid & 7)
+    res = not (lst[idx] & bit)
+    lst[idx] |= bit
+    lst[(idx + 16 & 0x1f)] = 0
+    return res
 
 
 class Client(ClientGeneric):
@@ -45,7 +61,7 @@ class Client(ClientGeneric):
         self._ok = False
         self._ack_mid = -1  # last received ACK mid
         self._tx_mid = 0  # sent mid, used for keeping messages in order
-        self._recv_mid = -1  # last received mid, used for deduping as message can't be out-of-order
+        self._recv_mid = bytearray(32)  # for deduping
         self._last_tx_time = 0
         self._rx_messages = []
         self._rx_message_event = asyncio.Event()
@@ -58,16 +74,8 @@ class Client(ClientGeneric):
         :param init_message:
         :return:
         """
-        # send ACK back directly
-        preheader = bytearray(5)
-        preheader[0] = 0x2C
-        preheader[1] = preheader[2] = preheader[3] = 0
-        preheader[4] = 0x2C  # ACK
-        preheader = "{}\n".format(binascii.hexlify(preheader).decode())
-        try:
-            self.transport.transport.write(preheader.encode())
-        except Exception as e:
-            self.log.debug("Got exception sending init-ACK {!s}: {!s}".format(preheader, e))
+        # ACK for client_id indirectly handled by starting to send keepalives
+        # TODO: check header for clean connection flag etc.
         super().start(init_message)
         self._reader_task = asyncio.ensure_future(self._reader())
 
@@ -78,7 +86,6 @@ class Client(ClientGeneric):
         :param message: message without newline termination
         :return: client_id str
         """
-        log.debug("readID {!s}".format(binascii.unhexlify(message[0:2])[0]))
         try:
             if binascii.unhexlify(message[0:2])[0] == 0x2C:  # only need first preheader value to check protocol
                 return message[10:].decode()
@@ -109,8 +116,7 @@ class Client(ClientGeneric):
                 else:
                     self._rx_message_event.clear()
             else:
-                # adapt this in subclass, low level api does not convert to dict or read header.
-                self.log.debug("_rx_messages: {!s}".format(self._rx_messages))
+                # self.log.debug("_rx_messages: {!s}".format(self._rx_messages))
                 return self._rx_messages.pop(0)
         raise asyncio.TimeoutError("Timeout waiting for a new message")
 
@@ -120,7 +126,7 @@ class Client(ClientGeneric):
                 preheader = None
                 header = None
                 line = await super()._read(timeout=math.inf, only_with_connection=False)
-                self.log.debug("Got line: {!s}".format(line))
+                # self.log.debug("Got line: {!s}".format(line))
                 if len(line) < 10:
                     self.log.error("Line is too short: {!s}".format(line))
                     continue
@@ -130,14 +136,15 @@ class Client(ClientGeneric):
                     self.log.error("Error converting preheader {!s}: {!s}".format(line, e))
                     continue
                 mid = preheader[0]
-                if preheader[4] == 0x2C:  # ACK
+                if preheader[4] & 0x2C == 0x2C:  # ACK
                     # self.log.debug("Got ack mid {!s}".format(mid))
                     self._ack_mid = mid
                     continue
-                if mid == self._recv_mid:
-                    self.log.debug("Dumping dupe mid {!s}".format(preheader[0]))
+                if not mid:
+                    isnew(-1, self._recv_mid)
+                if isnew(mid, self._recv_mid) is False:
+                    self.log.warn("Dumping dupe mid {!s}".format(preheader[0]))  # TODO: info
                     if preheader[4] & 0x01 == 1:  # qos==True, send ACK even if dupe
-                        # self.log.debug("Received qos")
                         await self._write_ack(mid)
                     continue
                 if preheader[1] > 0:
@@ -163,15 +170,10 @@ class Client(ClientGeneric):
                 except Exception as e:
                     self.log.critical("Error converting from json: {!s}".format(e))
                     self.log.critical("Data: {!s}".format(data))
-                # self.log.debug("preheader: {!s}".format(preheader))
                 self._rx_messages.append((header, data))
                 self._rx_message_event.set()
-                if mid != self._recv_mid + 1 or mid == 1:
-                    self.log.critical("Lost mid {!s}".format(mid))
-                self._recv_mid = mid
                 if preheader[4] & 0x01 == 1:  # qos==True, send ACK even if dupe
-                    # self.log.debug("Received qos")
-                    await self._write_ack(mid)
+                    await self._write_ack(mid)  # does not need much time, so no new task
         except asyncio.CancelledError:
             self.log.debug("Stopped _reader")
 
@@ -181,7 +183,6 @@ class Client(ClientGeneric):
         :param mid: mid of message to acknowledge
         :return:
         """
-        # self.log.debug("Sent ack {!s}".format(mid))
         preheader = bytearray(5)
         preheader[0] = mid
         preheader[1] = preheader[2] = preheader[3] = 0
@@ -193,7 +194,7 @@ class Client(ClientGeneric):
                     self.transport.transport.write(preheader.encode())
                     return True
                 except Exception as e:
-                    self.log.debug("Got exception sending ACK {!s}: {!s}".format(preheader, e))
+                    self.log.warn("Got exception sending ACK {!s}: {!s}".format(preheader, e))
                     return False
         else:
             return False
@@ -239,7 +240,6 @@ class Client(ClientGeneric):
         except Exception as e:
             self.log.error("Could not merge message, {!s}".format(e))
             return False
-        self.log.debug("Writing message {!s}, {!s}, {!s}".format(preheader, header, message))
         # disconnect on timeout waiting for sending slot is wrong. Only disconnect on ACK timeout.
         st = time.time()
         try:
@@ -247,26 +247,26 @@ class Client(ClientGeneric):
                 await asyncio.sleep(0.05)
                 continue
         except asyncio.CancelledError:
-            self.log.debug("Waiting for writing slot for mid {!s}, got canceled".format(mid))
+            self.log.info("Waiting for writing slot for mid {!s}, got canceled".format(mid))
             self._tx_mid_offset += 1
             raise
         if self._tx_mid != mid:
-            self.log.debug("Timeout waiting for sending slot {!s}".format(mid))
+            self.log.info("Timeout waiting for sending slot {!s}".format(mid))
             self._tx_mid_offset += 1
             raise asyncio.TimeoutError
         try:
             if qos:
-                # st = time.time()
                 while time.time() - st < timeout:
                     if self._removed:
                         return False
                     if self.connected.is_set():
+                        self.log.debug("Writing message {!s}, {!s}, {!s}".format(preheader, header, message))
                         ret = await self._write_qos(message)
                         if ret is False:
                             continue
                     else:
                         if only_with_connection is True:
-                            self.log.debug("Not connected, can't send")
+                            self.log.info("Not connected, can't send")
                             return False
                         await asyncio.sleep(0.5)
                         continue
@@ -278,20 +278,17 @@ class Client(ClientGeneric):
                             break
                     if self._ack_mid != mid:
                         if self.connected.is_set():
-                            self.log.warn("Did not receive ACK in time")
-                            await self.stop()
-                        else:
-                            continue
+                            self.log.warn("Did not receive ACK {!s} in time".format(mid))
+                            # await self.stop() # Possible deadlock if multiple concurrent writes are active
                     else:
                         return True
-                self.log.warn("Timeout sending message {!s}".format(message))
+                self.log.debug("Timeout sending message {!s}".format(message))
                 raise asyncio.TimeoutError
             else:
-                self.log.debug("write qos 0")
-                ret = await self._write_qos(message)  # also used for qos=0
+                ret = await self._write_qos(message)  # also used for qos False
                 return ret
         except asyncio.CancelledError:
-            self.log.debug("Write mid {!s} got externally canceled".format(mid))
+            self.log.info("Write mid {!s} got externally canceled".format(mid))
             raise
         finally:
             self._tx_mid += 1
@@ -310,13 +307,13 @@ class Client(ClientGeneric):
         if time.time() - self._last_tx_time < 0.05:  # 50ms between each transmission
             await asyncio.sleep(time.time() - self._last_tx_time)
         async with self.output_lock:
-            self.log.debug("Writing message {!s}".format(message))
+            # self.log.debug("Writing message {!s}".format(message))
             if type(message) == str:
                 message = message.encode()
             try:
                 self.transport.transport.write(message)
             except Exception as e:
-                self.log.debug("Got exception sending message {!s}: {!s}".format(message, e))
+                self.log.info("Got exception sending message {!s}: {!s}".format(message, e))
                 return False
             self._last_tx_time = time.time()
             return True

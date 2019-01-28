@@ -260,7 +260,6 @@ class Client:
                 else:
                     self.new_message_rx.clear()
             else:
-                # adapt this in subclass, low level api does not convert to dict or read header.
                 self.log.debug("lines_received: {!s}".format(self.lines_received))
                 return self.lines_received.pop(0)
         raise asyncio.TimeoutError("Timeout waiting for a new message")

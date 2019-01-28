@@ -29,26 +29,31 @@ from server.server_generic import Network
 
 def callbackNewClient(client: clients.Client):
     async def dynamicReader(client: clients.Client):
+        count = -1  # first message count is 0
         while not client.removed and not n.shutdown_requested.is_set():
             try:
                 header, message = await client.read(timeout=2)
             except asyncio.TimeoutError:
                 continue
+            if message[1] != count + 1:
+                client.log.critical("Lost message count {!s}, new message: {!s}".format(count + 1, message))
+            count = message[1]
             client.log.info("Got new message from client: {!s}, {!s}".format(header, message))
-            await asyncio.sleep(5)
 
     asyncio.ensure_future(dynamicReader(client))
 
     async def dynamicWriter(client: clients.Client):
         count = 0
         while not client.removed and not n.shutdown_requested.is_set():
+            await client.awaitConnection()
             mess = [count, time.time()]
             client.log.info("Sent message to client: {!s}".format(mess))
             try:
-                await client.write(None, mess, timeout=2)
+                # await client.write(None, mess, timeout=2)
+                await client.write(None, mess)  # No timeout to see check retransmission resilience of the whole system
             except asyncio.TimeoutError:
                 count += 1
-            await asyncio.sleep(5)
+            await asyncio.sleep(2.5)
 
     asyncio.ensure_future(dynamicWriter(client))
 
