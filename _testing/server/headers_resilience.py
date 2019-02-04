@@ -30,10 +30,13 @@ from server.server_generic import Network
 def callbackNewClient(client: clients.Client):
     async def dynamicReader(client: clients.Client):
         count = -1  # first message count is 0
-        while not client.removed and not n.shutdown_requested.is_set():
+        while n.shutdown_requested.is_set() is False:
             try:
                 header, message = await client.read(timeout=2)
             except asyncio.TimeoutError:
+                continue
+            except clients.ClientRemovedException:
+                await client.awaitConnection()
                 continue
             if message[1] != count + 1:
                 client.log.critical("Lost message count {!s}, new message: {!s}".format(count + 1, message))
@@ -43,17 +46,26 @@ def callbackNewClient(client: clients.Client):
     asyncio.ensure_future(dynamicReader(client))
 
     async def dynamicWriter(client: clients.Client):
+        count_failed = 0
+        latency_added = 0
         count = 0
-        while not client.removed and not n.shutdown_requested.is_set():
+        while n.shutdown_requested.is_set() is False:
             await client.awaitConnection()
-            mess = [count, time.time()]
+            mess = [count_failed, time.time()]
             client.log.info("Sent message to client: {!s}".format(mess))
+            st = time.time()
             try:
                 # await client.write(None, mess, timeout=2)
-                await client.write(None, mess)  # No timeout to see check retransmission resilience of the whole system
+                await client.write(None, mess)  # No timeout to check retransmission resilience of the whole system
             except asyncio.TimeoutError:
+                count_failed += 1
+            else:
+                latency = time.time() - st
+                latency_added += latency
                 count += 1
-            await asyncio.sleep(2.5)
+                client.log.debug(
+                    "Latency: {!s}ms, Avg Latency: {!s}ms".format(latency * 1000, latency_added / count * 1000))
+            # await asyncio.sleep(2.5)
 
     asyncio.ensure_future(dynamicWriter(client))
 

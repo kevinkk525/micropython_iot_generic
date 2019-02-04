@@ -11,7 +11,7 @@ import time
 import math
 
 from server.server_generic import getNetwork as _getNetwork
-from server.generic_clients.client import Client
+from server.generic_clients.client import Client, ClientRemovedException
 
 log = logging.getLogger("ClientHelpers")
 

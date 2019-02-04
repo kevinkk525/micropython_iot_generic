@@ -8,6 +8,7 @@ __version__ = "0.0"
 import asyncio
 import logging
 import math
+import time
 from server.apphandler.apphandler import AppHandler
 
 # server tested with 800 concurrent (dis)connects at a time, sending one message,
@@ -115,7 +116,7 @@ class ClientConnection(asyncio.Protocol):
             asyncio.ensure_future(self.client.stop())
 
     def data_received(self, data):
-        #log.debug("Got data: {!s}, len {!s}".format(data, len(data)))
+        # log.debug("Got data: {!s}, len {!s}".format(data, len(data)))
         message = self.input_buffer + data
         self.input_buffer = b""
         if message.find(b"\n") == -1:
@@ -127,10 +128,12 @@ class ClientConnection(asyncio.Protocol):
         for i in range(0, tmp.count(b"")):
             tmp.remove(b"")  # sometimes keepalives are read too but as nothing is done with these, just remove them
         message = tmp.pop(0) if len(tmp) > 0 else b""  # as keepalive has been removed
-        if message == b"":
-            # keepalive
-            return
+        # if message == b"": # need this to update last_rx_time
+        #    # keepalive
+        #    return
         if self.client_id is None:
+            if message == b"":
+                return  # new connection does not start with keepalive
             try:
                 client_id = getNetwork().Client.readID(message)
             except TypeError as e:
@@ -175,12 +178,16 @@ class ClientConnection(asyncio.Protocol):
                                                                                                          self.client_id))
             self.close()
             return
-        self.client.lines_received.append(message)
-        if len(tmp) > 0:
-            self.client.lines_received += tmp
-            while len(self.client.lines_received) > self.client.len_rx_buffer:
-                self.client.lines_received.pop(0)
-        self.client.new_message_rx.set()
+        if self.client.closing.is_set():
+            return  # Not accepting new messages if server is being shut down
+        self.client.last_rx_time = time.time()
+        if message != b"":
+            self.client.lines_received.append(message)
+            if len(tmp) > 0:
+                self.client.lines_received += tmp
+                while len(self.client.lines_received) > self.client.len_rx_buffer:
+                    self.client.lines_received.pop(0)
+            self.client.new_message_rx.set()
 
     def __del__(self):
         log.debug("Removing transport object to client {!r}, ip {!s}".format(self.client_id, self.ip))

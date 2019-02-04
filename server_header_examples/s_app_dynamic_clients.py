@@ -18,10 +18,13 @@ from server.server_generic import Network
 
 def callbackNewClient(client: clients.Client):
     async def dynamicReader(client: clients.Client):
-        while not client.removed and not n.shutdown_requested.is_set():
+        while n.shutdown_requested.is_set() is False:
             try:
                 header, message = await client.read(timeout=1)
             except asyncio.TimeoutError:
+                continue
+            except clients.ClientRemovedException:
+                await client.awaitConnection()
                 continue
             log.debug("Got new message from client {!r}: {!s}, {!s}".format(client.client_id, header, message))
 
@@ -29,7 +32,8 @@ def callbackNewClient(client: clients.Client):
 
     async def dynamicWriter(client: clients.Client):
         count = 0
-        while not client.removed and not n.shutdown_requested.is_set():
+        while n.shutdown_requested.is_set() is False:
+            await client.awaitConnection()
             log.debug("count {!s}".format(count))
             try:
                 await client.write(None, [count, time.time()])

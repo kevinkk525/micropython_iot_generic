@@ -19,10 +19,13 @@ from server.server_generic import Network
 
 def callbackNewClient(client: clients.Client):
     async def dynamicReader(client: clients.Client):
-        while not client.removed and not n.shutdown_requested.is_set():
+        while n.shutdown_requested.is_set() is False:
             try:
                 message = await client.read(timeout=1)
             except asyncio.TimeoutError:
+                continue
+            except clients.ClientRemovedException:
+                await client.awaitConnection()
                 continue
             try:
                 message = json.loads(message)
@@ -35,7 +38,8 @@ def callbackNewClient(client: clients.Client):
 
     async def dynamicWriter(client: clients.Client):
         count = 0
-        while not client.removed and not n.shutdown_requested.is_set():
+        while n.shutdown_requested.is_set() is False:
+            await client.awaitConnection()
             await client.write(json.dumps([count, time.time()]))  # puts message into output_buffer
             count += 1
             await asyncio.sleep(5)

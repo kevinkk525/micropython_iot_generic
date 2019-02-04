@@ -78,6 +78,7 @@ class Client:
         self.timeout_client = timeout_client_object
         self.timeout_connection = timeout_connection
         self.last_connection_time = None  # Client can be created without an active connection
+        self.last_rx_time = None
         self.log = logging.getLogger("{!s}".format(self))
         self.log.debug("Client created")
 
@@ -160,7 +161,7 @@ class Client:
         # self.log.debug("Client list: {!s}".format(_getNetwork().clients))
         self._removed = True
 
-    @_checkRemoved
+    # @_checkRemoved
     async def stop(self):
         self.connected.clear()
         if self.closing.is_set() is False:
@@ -215,6 +216,7 @@ class Client:
         """
         self.log.debug("Starting")
         self.last_connection_time = time.time()
+        self.last_rx_time = time.time()
         self.new_message_rx.clear()
         self.connected.set()
         if self.await_client_timeout_task is not None:
@@ -274,6 +276,9 @@ class Client:
                 except Exception as e:
                     self.log.debug("Got exception sending keepalive: {!s}".format(e))
                     return
+                if time.time() - self.last_rx_time > self.timeout_connection:
+                    self.log.warn("RX timeout")
+                    asyncio.ensure_future(self.stop())  # separate task as stop() cancels _keepalive
                 await asyncio.sleep(to)
         except asyncio.CancelledError:
             self.log.debug("keepalive canceled")

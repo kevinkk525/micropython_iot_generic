@@ -107,6 +107,7 @@ class Client(ClientGeneric):
         st = time.time()
         while time.time() - st < timeout:
             if self._removed:
+                self.log.warn("Client has been removed")
                 raise ClientRemovedException
             if len(self._rx_messages) == 0:
                 try:
@@ -280,6 +281,8 @@ class Client(ClientGeneric):
                         if self.connected.is_set():
                             self.log.warn("Did not receive ACK {!s} in time".format(mid))
                             # await self.stop() # Possible deadlock if multiple concurrent writes are active
+                        else:
+                            self.log.warn("Did not receive ACK {!s} in time because disconnected".format(mid))
                     else:
                         return True
                 self.log.debug("Timeout sending message {!s}".format(message))
