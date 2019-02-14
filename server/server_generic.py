@@ -15,8 +15,8 @@ from server.apphandler.apphandler import AppHandler
 # causing ~70% cpu usage on one 2GHz arm core with ~40MB RAM usage.
 # Running this for several hours did not show any RAM leak.
 
-# TODO: currently higher level APIs have no way of waiting until their message has been actually sent
 # TODO: initiated connections to the server without sending a message stay open
+# TODO: keepalive should only send if no new message within timeframe
 
 log = logging.getLogger("")
 _network = None
@@ -105,10 +105,11 @@ class ClientConnection(asyncio.Protocol):
         self.transport = transport
         sock = transport.get_extra_info("socket")
         import socket
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 1)
+        sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
+        # sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        # sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
+        # sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
+        # sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 1)
 
     def connection_lost(self, exc):
         log.info("Connection to client {!r}, {!s} lost, exception {!s}".format(self.client_id, self.ip, exc))
@@ -128,9 +129,6 @@ class ClientConnection(asyncio.Protocol):
         for i in range(0, tmp.count(b"")):
             tmp.remove(b"")  # sometimes keepalives are read too but as nothing is done with these, just remove them
         message = tmp.pop(0) if len(tmp) > 0 else b""  # as keepalive has been removed
-        # if message == b"": # need this to update last_rx_time
-        #    # keepalive
-        #    return
         if self.client_id is None:
             if message == b"":
                 return  # new connection does not start with keepalive
@@ -181,6 +179,7 @@ class ClientConnection(asyncio.Protocol):
         if self.client.closing.is_set():
             return  # Not accepting new messages if server is being shut down
         self.client.last_rx_time = time.time()
+        self.client.log.debug("Got data: {!s}, len {!s}".format(data, len(data)))
         if message != b"":
             self.client.lines_received.append(message)
             if len(tmp) > 0:

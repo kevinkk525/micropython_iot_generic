@@ -36,8 +36,7 @@ def callbackNewClient(client: clients.Client):
             except asyncio.TimeoutError:
                 continue
             except clients.ClientRemovedException:
-                await client.awaitConnection()
-                continue
+                return  # Reconnect will start this reader
             if message[1] != count + 1:
                 client.log.critical("Lost message count {!s}, new message: {!s}".format(count + 1, message))
             count = message[1]
@@ -50,8 +49,7 @@ def callbackNewClient(client: clients.Client):
         latency_added = 0
         count = 0
         while n.shutdown_requested.is_set() is False:
-            await client.awaitConnection()
-            mess = [count_failed, time.time()]
+            mess = [count_failed, count, time.time()]
             client.log.info("Sent message to client: {!s}".format(mess))
             st = time.time()
             try:
@@ -59,6 +57,8 @@ def callbackNewClient(client: clients.Client):
                 await client.write(None, mess)  # No timeout to check retransmission resilience of the whole system
             except asyncio.TimeoutError:
                 count_failed += 1
+            except clients.ClientRemovedException:
+                return  # Reconnect will start this writer
             else:
                 latency = time.time() - st
                 latency_added += latency
@@ -71,6 +71,7 @@ def callbackNewClient(client: clients.Client):
 
 
 n = Network(timeout_client_object=120,
+            timeout_connection=5000,
             cb_new_client=callbackNewClient,
             client_class=clients.Client)  # for debug purposes only hold client object for 30s
 

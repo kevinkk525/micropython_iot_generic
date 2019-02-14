@@ -66,7 +66,6 @@ class Client:
         self.new_message_rx = asyncio.Event()
         self.new_message_tx = asyncio.Event()
         self.output_buffer = []
-        self.output_lock = asyncio.Lock()
         self.keepalive_task = None
         self.writer_task = None
         self.await_client_timeout_task = None
@@ -111,7 +110,7 @@ class Client:
                 return True
         return False
 
-    @_checkRemovedAsync
+    # @_checkRemovedAsync
     async def awaitConnection(self, timeout=math.inf):
         if timeout is None:
             timeout = math.inf
@@ -276,7 +275,7 @@ class Client:
                 except Exception as e:
                     self.log.debug("Got exception sending keepalive: {!s}".format(e))
                     return
-                if time.time() - self.last_rx_time > self.timeout_connection:
+                if (time.time() - self.last_rx_time) > (self.timeout_connection / 1000):
                     self.log.warn("RX timeout")
                     asyncio.ensure_future(self.stop())  # separate task as stop() cancels _keepalive
                 await asyncio.sleep(to)
@@ -300,7 +299,7 @@ class Client:
         st = time.time()
         while time.time() - st < timeout:
             if self._removed:
-                return False
+                raise ClientRemovedException
             if only_with_connection is True:
                 try:
                     await asyncio.wait_for(self.connected.wait(), 1)
@@ -337,19 +336,17 @@ class Client:
                 else:
                     if self.transport is not None and not self.transport.transport.is_closing():
                         while len(self.output_buffer):
-                            async with self.output_lock:
-                                self.log.debug("Writing message {!s}".format(self.output_buffer[0]))
-                                message = self.output_buffer[0]
-                                if type(message) == str:
-                                    message = message.encode()
-                                try:
-                                    self.transport.transport.write(message)
-                                except Exception as e:
-                                    self.log.debug(
-                                        "Got exception sending message {!s}: {!s}".format(self.output_buffer[0], e))
-                                    return
-                                self.output_buffer.pop(0)
-                            await asyncio.sleep(0.05)  # small pause between sends, 0.01 does not have any effect
+                            self.log.debug("Writing message {!s}".format(self.output_buffer[0]))
+                            message = self.output_buffer[0]
+                            if type(message) == str:
+                                message = message.encode()
+                            try:
+                                self.transport.transport.write(message)
+                            except Exception as e:
+                                self.log.debug(
+                                    "Got exception sending message {!s}: {!s}".format(self.output_buffer[0], e))
+                                return
+                            self.output_buffer.pop(0)
                             # place throttle event/release event here
                         self.new_message_tx.clear()
                     else:

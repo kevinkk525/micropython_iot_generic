@@ -58,7 +58,6 @@ class Client(ClientGeneric):
         """
         super().__init__(client_id, len_rx_buffer, len_tx_buffer, timeout_connection, timeout_client_object)
         self._getmid = gmid()
-        self._ok = False
         self._ack_mid = -1  # last received ACK mid
         self._tx_mid = 0  # sent mid, used for keeping messages in order
         self._recv_mid = bytearray(32)  # for deduping
@@ -77,7 +76,8 @@ class Client(ClientGeneric):
         # ACK for client_id indirectly handled by starting to send keepalives
         # TODO: check header for clean connection flag etc.
         super().start(init_message)
-        self._reader_task = asyncio.ensure_future(self._reader())
+        if self._reader_task is None or self._reader_task.done() is True:
+            self._reader_task = asyncio.ensure_future(self._reader())
 
     @classmethod
     def readID(cls, message: bytes) -> str:
@@ -127,7 +127,6 @@ class Client(ClientGeneric):
                 preheader = None
                 header = None
                 line = await super()._read(timeout=math.inf, only_with_connection=False)
-                # self.log.debug("Got line: {!s}".format(line))
                 if len(line) < 10:
                     self.log.error("Line is too short: {!s}".format(line))
                     continue
@@ -177,6 +176,26 @@ class Client(ClientGeneric):
                     await self._write_ack(mid)  # does not need much time, so no new task
         except asyncio.CancelledError:
             self.log.debug("Stopped _reader")
+        except ClientRemovedException:
+            self.log.info("Client removed, stopping _reader")
+
+    async def _keepalive(self):
+        self.log.debug("Keepalive started")
+        to = self.timeout_connection / 1000 * 2 / 3
+        try:
+            while self.transport is not None and not self.transport.transport.is_closing():
+                try:
+                    self.transport.transport.write(b"\n")
+                    self._last_tx_time = time.time()
+                except Exception as e:
+                    self.log.debug("Got exception sending keepalive: {!s}".format(e))
+                    return
+                if (time.time() - self.last_rx_time) > (self.timeout_connection / 1000):
+                    self.log.warn("RX timeout")
+                    asyncio.ensure_future(self.stop())  # separate task as stop() cancels _keepalive
+                await asyncio.sleep(to)
+        except asyncio.CancelledError:
+            self.log.debug("keepalive canceled")
 
     async def _write_ack(self, mid):
         """
@@ -190,13 +209,13 @@ class Client(ClientGeneric):
         preheader[4] = 0x2C  # ACK
         preheader = "{}\n".format(binascii.hexlify(preheader).decode())
         if self.connected.is_set():
-            async with self.output_lock:
-                try:
-                    self.transport.transport.write(preheader.encode())
-                    return True
-                except Exception as e:
-                    self.log.warn("Got exception sending ACK {!s}: {!s}".format(preheader, e))
-                    return False
+            try:
+                self.transport.transport.write(preheader.encode())
+                self._last_tx_time = time.time()
+                return True
+            except Exception as e:
+                self.log.warn("Got exception sending ACK {!s}: {!s}".format(preheader, e))
+                return False
         else:
             return False
 
@@ -221,7 +240,7 @@ class Client(ClientGeneric):
                 message = json.dumps(message)
             except Exception as e:
                 self.log.error("Could not convert message, {!s}".format(e))
-                return False
+                raise e
         if type(message) == str:
             message = message.encode()
         if timeout is None:
@@ -259,7 +278,7 @@ class Client(ClientGeneric):
             if qos:
                 while time.time() - st < timeout:
                     if self._removed:
-                        return False
+                        raise ClientRemovedException
                     if self.connected.is_set():
                         self.log.debug("Writing message {!s}, {!s}, {!s}".format(preheader, header, message))
                         ret = await self._write_qos(message)
@@ -272,7 +291,7 @@ class Client(ClientGeneric):
                         await asyncio.sleep(0.5)
                         continue
                     st_ack = time.time()
-                    while time.time() - st_ack < 1:  # 1 second to receive ACK, typically <400ms needed, client not busy
+                    while time.time() - st_ack < 2:  # 2s to receive ACK, typically <400ms needed, client not busy
                         if mid != self._ack_mid:
                             await asyncio.sleep(0.05)
                         else:
@@ -280,9 +299,10 @@ class Client(ClientGeneric):
                     if self._ack_mid != mid:
                         if self.connected.is_set():
                             self.log.warn("Did not receive ACK {!s} in time".format(mid))
-                            # await self.stop() # Possible deadlock if multiple concurrent writes are active
                         else:
                             self.log.warn("Did not receive ACK {!s} in time because disconnected".format(mid))
+                        if self.closing.is_set():  # if client is shutting down, don't resend
+                            return False
                     else:
                         return True
                 self.log.debug("Timeout sending message {!s}".format(message))
@@ -307,16 +327,13 @@ class Client(ClientGeneric):
         """
         if not message.endswith("\n" if type(message) == str else b"\n"):
             message += "\n" if type(message) == str else b"\n"
-        if time.time() - self._last_tx_time < 0.05:  # 50ms between each transmission
-            await asyncio.sleep(time.time() - self._last_tx_time)
-        async with self.output_lock:
-            # self.log.debug("Writing message {!s}".format(message))
-            if type(message) == str:
-                message = message.encode()
-            try:
-                self.transport.transport.write(message)
-            except Exception as e:
-                self.log.info("Got exception sending message {!s}: {!s}".format(message, e))
-                return False
-            self._last_tx_time = time.time()
-            return True
+        self.log.debug("Writing message {!s}".format(message))
+        if type(message) == str:
+            message = message.encode()
+        try:
+            self.transport.transport.write(message)
+        except Exception as e:
+            self.log.info("Got exception sending message {!s}: {!s}".format(message, e))
+            return False
+        self._last_tx_time = time.time()
+        return True
