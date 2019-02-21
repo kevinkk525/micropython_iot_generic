@@ -48,7 +48,7 @@ class Network:
         if port is not None:
             self.port = port
         else:
-            self.port = 8888
+            self.port = 9999
         self.timeout_connection = timeout_connection
         self.timeout_client = timeout_client_object
         self.loop = None

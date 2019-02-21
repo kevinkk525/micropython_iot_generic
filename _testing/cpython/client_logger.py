@@ -43,7 +43,7 @@ async def read(port, imp_statement=None, start_client=True):
                         await asyncio.sleep(0.001)
                     except serial.serialutil.SerialException:
                         continue
-                        await asyncio.sleep(0.05)
+                        # await asyncio.sleep(0.05)
         except Exception as e:
             log.critical(e)
         await asyncio.sleep(0.1)
@@ -86,7 +86,7 @@ def readSync(port, imp_statement=None, start_client=True):
                         time.sleep(0.001)
                     except serial.serialutil.SerialException:
                         continue
-                        time.sleep(0.05)
+                        # time.sleep(0.05)
         except Exception as e:
             log.critical(e)
         time.sleep(0.1)

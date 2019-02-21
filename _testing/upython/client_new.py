@@ -19,7 +19,6 @@ print("IOT took", b - a, "Bytes of RAM")
 
 # from client.client import IOT
 from machine import Pin
-import uasyncio as asyncio
 
 loop = asyncio.get_event_loop()
 

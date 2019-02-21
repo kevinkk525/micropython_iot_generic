@@ -71,7 +71,8 @@ def callbackNewClient(client: clients.Client):
 
 
 n = Network(timeout_client_object=120,
-            timeout_connection=5000,
+            timeout_connection=4000,
+            port=9999,
             cb_new_client=callbackNewClient,
             client_class=clients.Client)  # for debug purposes only hold client object for 30s
 

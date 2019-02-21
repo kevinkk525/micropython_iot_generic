@@ -75,7 +75,7 @@ class MqttInstance(AppInstance):
         asyncio.run_coroutine_threadsafe(self._execute(msg.topic, msg.payload, msg.retain), self.loop)
 
     async def _execute(self, topic, msg, retain):
-        self.log.debug("mqtt execution: {!s} {!s}".format(topic, msg, retain))
+        self.log.debug("mqtt execution: {!s} {!s} {!s}".format(topic, msg, retain))
         msg = msg.decode()
         unsub = []
         topics = self._subscriptions.get(topic, "OnlyRetained")

@@ -16,8 +16,6 @@ import asyncio
 log = logging.getLogger("Client")
 
 
-# TODO: implement multiple concurrent writes or mabye not as esp can't handle it anyway.
-
 # Create message ID's. Initially 0 then 1 2 ... 254 255 1 2
 def gmid():
     mid = 0
@@ -88,7 +86,7 @@ class Client(ClientGeneric):
         """
         try:
             if binascii.unhexlify(message[0:2])[0] == 0x2C:  # only need first preheader value to check protocol
-                return message[10:].decode()
+                return message[6:].decode()
         except Exception as e:
             raise TypeError("Message {!s} does not have the correct protocol, error {!s}".format(message, e))
 
@@ -127,16 +125,16 @@ class Client(ClientGeneric):
                 preheader = None
                 header = None
                 line = await super()._read(timeout=math.inf, only_with_connection=False)
-                if len(line) < 10:
+                if len(line) < 6:
                     self.log.error("Line is too short: {!s}".format(line))
                     continue
                 try:
-                    preheader = bytearray(binascii.unhexlify(line[:10]))  # 5 byte header=10 byte binascii
+                    preheader = bytearray(binascii.unhexlify(line[:6]))  # 3 byte header=6 byte binascii
                 except Exception as e:
                     self.log.error("Error converting preheader {!s}: {!s}".format(line, e))
                     continue
                 mid = preheader[0]
-                if preheader[4] & 0x2C == 0x2C:  # ACK
+                if preheader[2] & 0x2C == 0x2C:  # ACK
                     # self.log.debug("Got ack mid {!s}".format(mid))
                     self._ack_mid = mid
                     continue
@@ -144,19 +142,19 @@ class Client(ClientGeneric):
                     isnew(-1, self._recv_mid)
                 if isnew(mid, self._recv_mid) is False:
                     self.log.warn("Dumping dupe mid {!s}".format(preheader[0]))  # TODO: info
-                    if preheader[4] & 0x01 == 1:  # qos==True, send ACK even if dupe
+                    if preheader[2] & 0x01 == 1:  # qos==True, send ACK even if dupe
                         await self._write_ack(mid)
                     continue
                 if preheader[1] > 0:
                     try:
-                        header = bytearray(binascii.unhexlify(line[10:10 + preheader[1] * 2]))
+                        header = bytearray(binascii.unhexlify(line[6:6 + preheader[1] * 2]))
                     except Exception as e:
                         self.log.error("Error converting header {!s}: {!s}".format(line, e))
                         continue
-                    data = line[10 + preheader[1] * 2:]
+                    data = line[6 + preheader[1] * 2:]
                 else:
                     header = None
-                    data = line[10:]
+                    data = line[6:]
                 try:
                     data = data.decode()
                 except UnicodeDecodeError:
@@ -172,7 +170,7 @@ class Client(ClientGeneric):
                     self.log.critical("Data: {!s}".format(data))
                 self._rx_messages.append((header, data))
                 self._rx_message_event.set()
-                if preheader[4] & 0x01 == 1:  # qos==True, send ACK even if dupe
+                if preheader[2] & 0x01 == 1:  # qos==True, send ACK even if dupe
                     await self._write_ack(mid)  # does not need much time, so no new task
         except asyncio.CancelledError:
             self.log.debug("Stopped _reader")
@@ -205,8 +203,8 @@ class Client(ClientGeneric):
         """
         preheader = bytearray(5)
         preheader[0] = mid
-        preheader[1] = preheader[2] = preheader[3] = 0
-        preheader[4] = 0x2C  # ACK
+        preheader[1] = 0
+        preheader[2] = 0x2C  # ACK
         preheader = "{}\n".format(binascii.hexlify(preheader).decode())
         if self.connected.is_set():
             try:
@@ -245,15 +243,13 @@ class Client(ClientGeneric):
             message = message.encode()
         if timeout is None:
             timeout = math.inf
-        preheader = bytearray(5)
+        preheader = bytearray(3)
         preheader[0] = next(self._getmid)
         preheader[1] = 0 if header is None else len(header)
-        preheader[2] = len(message) & 0xFF
-        preheader[3] = (len(message) >> 8) & 0xFF  # allows for 65535 message length
-        preheader[4] = 0  # special internal usages, e.g. for esp_link
+        preheader[2] = 0  # special internal usages, e.g. for esp_link
         mid = preheader[0]
         if qos:
-            preheader[4] |= 0x01  # qos==True, request ACK
+            preheader[2] |= 0x01  # qos==True, request ACK
         preheader = binascii.hexlify(preheader)
         try:
             message = preheader + (binascii.hexlify(header) if header is not None else b"") + message
