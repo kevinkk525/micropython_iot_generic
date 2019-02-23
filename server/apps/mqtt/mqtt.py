@@ -2,8 +2,8 @@
 # Copyright Kevin Köck 2019 Released under the MIT license
 # Created on 2018-12-28
 
-__updated__ = "2018-12-28"
-__version__ = "0.0"
+__updated__ = "2019-02-23"
+__version__ = "0.1"
 
 from server.apphandler.apphandler import App, AppInstance
 
@@ -22,15 +22,16 @@ CMD_WILL = 4
 CMD_WELC = 5
 
 
-# TODO: something keeps multiple mqtt instances after connection loss
+# TODO: something keeps multiple mqtt instances after connection loss occasionally
 # TODO: add support for device topic, eg .led/set
-# TODO: build qos or retain values into header? only one bit left in 1 byte app_header
+# TODO: build retain value into header? only one bit left in 1 byte app_header
+# Note: Qos for mqtt is 2 by default as host is powerful
 
 class MqttInstance(AppInstance):
     def __init__(self, app, id, client: _Client):
         super().__init__(app, id, client)
         self._subscriptions = SubscriptionHandler("Qos", "OnlyRetained")
-        self.mqtt_home = self.app.config["mqtt_home"]  # not yet used
+        self.mqtt_home = self.app.config["mqtt_home"]  # not yet used, needed for device topic support
         self.id = client.client_id
         self.will = None
         self.welc = None
@@ -106,19 +107,18 @@ class MqttInstance(AppInstance):
         except Exception as e:
             self.log.error("Error unsubscribing: {!s}".format(e))
 
-    def _publish(self, topic, msg, qos=0, retain=False):
-        self.mqtt.publish(topic, msg, qos, retain)
+    def _publish(self, topic, msg, retain=False):
+        self.mqtt.publish(topic, msg, qos=2, retain=retain)
 
-    async def _getRetainedStateTopic(self, topic: str, qos: int):
+    async def _getRetainedStateTopic(self, topic: str):
         if topic.endswith("/set"):
             state_topic = topic[:-4]
             sub = self._subscriptions.addObject(state_topic)
-            sub["Qos"] = qos
             sub["OnlyRetained"] = True
-            self.mqtt.subscribe(state_topic, qos)
+            self.mqtt.subscribe(state_topic, qos=2)
         else:
             # not a command topic, topic therefore already in subscriptionHandler
-            self.mqtt.subscribe(topic, qos)
+            self.mqtt.subscribe(topic, qos=2)
             return
         await asyncio.sleep(0.1)
         try:
@@ -128,35 +128,24 @@ class MqttInstance(AppInstance):
         else:
             self.mqtt.unsubscribe(topic)
 
-    def _subscribe(self, topics: list, qos: list, check_state_topic=True):
-        if type(qos) != list:
-            qos = [qos] * len(topics)
+    def _subscribe(self, topics, check_state_topic=True):
         if type(topics) != list:
             topics = [topics]
         topics_new = copy.deepcopy(topics)
         for topic in topics_new:
             try:
-                t = self._subscriptions.get(topic, "Qos", equal=True)
+                if self._subscriptions.get(topic, "Qos", equal=True):
+                    topics.remove(topic)
+                    continue
             except ValueError:
                 pass
-            else:
-                if t < qos[topics_new.index(topic)]:
-                    self.mqtt.unsubscribe(topic)
-                    self.mqtt.subscribe(topic, qos[topics_new.index[topic]])
-                    self._subscriptions.set(topic, "Qos", qos[topics_new.index[topic]])
-                # remove topic as already subscribed if qos subscribed >= qos requested
-                # or subscribe higher qos
-                qos.remove(topics.index(topic))
-                topics.remove(topic)
-                continue
         for topic in topics:
             sub = self._subscriptions.addObject(topic)
-            sub["Qos"] = qos[topics.index(topic)]
             sub["OnlyRetained"] = False
             if check_state_topic is True and topic.endswith("/set"):
-                asyncio.ensure_future(self._getRetainedStateTopic(topic, sub["Qos"]))
+                asyncio.ensure_future(self._getRetainedStateTopic(topic))
             else:
-                self.mqtt.subscribe(topic, sub["Qos"])
+                self.mqtt.subscribe(topic)
 
     async def stop(self):
         """

@@ -2,8 +2,8 @@
 # Copyright Kevin Köck 2019 Released under the MIT license
 # Created on 2018-12-10
 
-__updated__ = "2019-01-02"
-__version__ = "1.1"
+__updated__ = "2019-02-23"
+__version__ = "1.2"
 
 from ..apphandler import get_apphandler
 from .. import subs_handler
@@ -24,23 +24,27 @@ CMD_WELC = const(5)
 
 
 class Mqtt:
-    def __init__(self, will=None, welc=None):
+    def __init__(self, will: list = None, welc: list = None):
         ####
-        # Proxy has credentials to mqtt broker and will connect automatically
+        # Proxy/Server has credentials for mqtt broker and will connect automatically
         ####
-        self.id = get_apphandler().addInstance(self)  # get id for app
+        self.id = get_apphandler().addInstance(self)  # get id for app and add to apphandler
         self.ident = IDENT  # identification number for type of app
-        # id and ident needed as it is possible to have multiple GET requests that have the same ident
+        # id and ident needed as it is possible to have multiple requests that have the same ident
         # identifying the type of App but different id to distinguish the sources
         self.active = True
         self._subs = subs_handler.SubscriptionHandler()
         self._cbs = 0  # currently active callbacks, could be used for flow control between host, not implemented yet
-        self._will = will  # topic,payload,qos,retain
-        self._welc = welc
-        if will is not None:
-            asyncio.get_event_loop().create_task(self._write(CMD_WILL, [will[0], will[1], will[2], will[3]]))
+        if will is not None:  # topic,payload,qos,retain #qos only for compatibility and will be removed
+            if len(will) == 4:  # remove qos
+                will.pop(3)
+            asyncio.get_event_loop().create_task(self._write(CMD_WILL, will))
+        self._will = will
         if welc is not None:
-            asyncio.get_event_loop().create_task(self._write(CMD_WELC, [welc[0], welc[1], welc[2], welc[3]]))
+            if len(welc) == 4:
+                welc.pop(3)
+            asyncio.get_event_loop().create_task(self._write(CMD_WELC, welc))
+        self._welc = welc
         self._old_state = True
         self.print_error = print  # change this function if you use a different way of logging
 
@@ -91,49 +95,49 @@ class Mqtt:
     async def _resubscribe(self):
         will = self._will
         if will is not None:
-            await self._write(CMD_WILL, [will[0], will[1], will[2], will[3]])
+            await self._write(CMD_WILL, will)
         welc = self._welc
         if welc is not None:
-            await self._write(CMD_WELC, [welc[0], welc[1], welc[2], welc[3]])
-        for subs, qos in self._subs:
-            await self._write(CMD_SUBS, [subs, qos, False])
+            await self._write(CMD_WELC, welc)
+        for subs in self._subs:
+            await self._write(CMD_SUBS, [subs, False])
 
-    async def subscribe(self, topic, callback_coro, qos=0, check_retained_state_topic=True):
+    async def subscribe(self, topic, callback_coro, qos=2, check_retained_state_topic=True):
         """
         :param topic: topic to subscribe to
         :param callback_coro: coroutine to run on message to this topic
-        :param qos: qos the server will subscribe to.
+        :param qos: just for compatibility, server will use qos=2 as the server is powerful
         :param check_retained_state_topic: when subscribing to button/set as a command topic,
         check topic button first to be able to restore the current state
         :return:
         """
-        self._subs.add(topic, callback_coro, qos)
-        await self._write(CMD_SUBS, [topic, qos, check_retained_state_topic])
+        self._subs.add(topic, callback_coro)
+        await self._write(CMD_SUBS, [topic, check_retained_state_topic])
 
-    async def publish(self, topic, msg, qos=0, retain=False):
+    async def publish(self, topic, msg, qos=2, retain=False):
         """
         :param topic: where to publish to
         :param msg: message to be published
         :param retain: if published as retained
-        :param qos: qos the server will publish with
+        :param qos: just for compatibility, server will use qos=2 as the server is powerful
         :return:
         """
-        await self._write(CMD_PUB, [topic, msg, qos, retain])
+        await self._write(CMD_PUB, [topic, msg, retain])
 
-    def schedulePublish(self, topic, msg, qos=0, retain=False):
-        asyncio.get_event_loop().create_task(self.publish(topic, msg, qos, retain))
+    def schedulePublish(self, topic, msg, qos=2, retain=False):
+        asyncio.get_event_loop().create_task(self.publish(topic, msg, retain=retain))
 
     async def unsubscribe(self, topic, cb=None):
         if cb is None:
             self._subs.delete(topic)
             await self._write(CMD_UNSUBS, [topic])
         else:
-            cbs, qos = self._subs.get(topic)
+            cbs = self._subs.get(topic)
             if type(cbs) == tuple:
                 cbs = list(cbs)
                 cbs.remove(cb)  # can throw an error if cb is not in list
                 self._subs.set(topic, cbs)
-            elif cbs == cb or cbs == [cb]:  # TODO: check format a single cb is saved as
+            elif cbs == cb or cbs == [cb]:  # only one callback for topic subscribed
                 await self._write(CMD_UNSUBS, [topic])
                 self._subs.delete(topic)
             else:

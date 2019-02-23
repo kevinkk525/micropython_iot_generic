@@ -12,17 +12,17 @@ import gc
 
 
 class App:
-    def __init__(self, ident):
+    def __init__(self):
         """
         Handles identification of app and provides an interface for sending and receiving messages.
         Only use callback or async reader. If callback is used, async reader won't receive any data.
         Don't use callback for temporary apps like a GET request.
         Use this class only for permanent apps like a mqtt client.
         Use coroutine "AppTemporary" for temporary apps like a GET request.
-        :param ident: integer app identifier, has to be the same on the server so proxy knows where to route data to
+        Change the app ident to a unique int between 0-255
         """
         self.id = AppHandler.addInstance(self)  # get id for app
-        self.ident = ident  # identification number for type of app
+        self.ident = -1  # integer app identifier, has to be the same on the server so he knows where to route data to
         # id and ident needed as it is possible to have multiple GET requests that have the same ident
         # identifying the type of App but different id to distinguish the sources
         self.active = True
@@ -51,11 +51,11 @@ class App:
         """
         pass
 
-    async def write(self, header, data):
+    async def write(self, header: int, data: any):
         """
         Implement in the same way
-        :param header: int
-        :param data: any (json.dumps)
+        :param header: int (0-255)
+        :param data: any
         :return:
         """
         if header is None:
@@ -86,13 +86,13 @@ async def AppTemporary(AppClass, header, message, timeout=120):
     Use this for an App like a GET request that just sends a message and waits for one answer.
     Either use this function and provide an AppClass or copy it and adapt to your needs
     if you need an adaption.
-    :param AppClass: Class of an App
+    :param AppClass: Class of an App. Just used as generic wrapper.
     :param header: header of message if used by app. This function is very generic as an example.
     :param message: what you want to send to the server
     :param timeout: seconds, timeout waiting for an answer
     :return: server response
     """
-    app = AppClass(timeout)
+    app = AppClass()
     await app.write(header, message)
     try:
         """
@@ -102,7 +102,7 @@ async def AppTemporary(AppClass, header, message, timeout=120):
         s = time.ticks_ms()
         while True:
             if time.ticks_ms() - s < timeout * 1000 and app.active:
-                await asyncio.sleep_ms(100)
+                await asyncio.sleep_ms(50)
                 if app.data is not None:
                     data = app.data
                     break

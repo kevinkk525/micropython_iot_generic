@@ -5,7 +5,8 @@
 __updated__ = "2019-01-02"
 __version__ = "0.0"
 
-from micropython_iot_generic.client import apphandler
+from client.apphandler import get_apphandler, TimeoutError
+from client.app_template import App, AppTemporary
 
 import uasyncio as asyncio
 from machine import Pin
@@ -17,25 +18,24 @@ port = 8888
 
 loop = asyncio.get_event_loop()
 
-app_handler = apphandler.AppHandler(loop, b"1\n", server, port, timeout=1500, verbose=True,
-                                    led=Pin(2, Pin.OUT, value=1))
+app_handler = get_apphandler(loop, "1", server, port, verbose=True, led=Pin(2, Pin.OUT, value=1))
 
 ###
 # Echo Client
 ###
-echoApp = apphandler.App(ident=0)
+echoApp = App()
+echoApp.ident = 0
 
 
-# send message to server and get it back with incremented count. Also measure delay between message and response
+# send message to server and get it back. Also measure delay between message and response
 async def echoClient(app):
     count = 0
     delay = -1
     while True:
         st = time.ticks_ms()
-        await app.write(0, ["echo message", count, delay, gc.mem_free()])
         try:
-            header, message = await app
-        except apphandler.TimeoutError:
+            header, message = await AppTemporary(app, 0, ["echo message", count, delay, gc.mem_free()])
+        except TimeoutError:
             print("TimeoutError waiting for message")
             return
         et = time.ticks_ms()
