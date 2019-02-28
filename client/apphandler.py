@@ -8,8 +8,8 @@ __version__ = "0.1"
 _client = None  # one server connection instance for multiple apps
 import gc
 import uasyncio as asyncio
-from micropython_iot.client import Client
-from micropython_iot import Event, Lock  # Stripped down version of asyn.py
+from .micropython_iot.client import Client
+from .micropython_iot import Event, Lock  # Stripped down version of asyn.py
 
 gc.collect()
 
@@ -36,7 +36,7 @@ class AppHandler(Client):
         global _client
         if _client is None:
             _client = self
-        self._reader_task = self._reader()
+        self._reader_task = self._reader_app()
         loop.create_task(self._reader_task)
 
     @classmethod
@@ -85,11 +85,12 @@ class AppHandler(Client):
             if hasattr(i, "concb"):
                 i.concb(state)
             i = i.next
+        print("_concb done")
 
     async def read(self):
         raise NotImplementedError("read not available for apphandler")
 
-    async def _reader(self):
+    async def _reader_app(self):
         self._verbose and print('App awaiting connection.')
         await self
         self.connected.set()  # only now the AppHandler can be used

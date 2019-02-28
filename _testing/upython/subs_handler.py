@@ -35,7 +35,7 @@ def printMemory(info=""):
 def creating():
     gc.collect()
     printMemory("Start")
-    from micropython_iot_generic.client.subs_handler import SubscriptionHandler
+    from client.subs_handler import SubscriptionHandler
     gc.collect()
     printMemory("After import")
     global handler
@@ -107,7 +107,7 @@ def test():
         equals = expected == res
         print("Success:", equals, "Expected result:", expected, "Result:", res)
 
-    from micropython_iot_generic.client.subs_handler import SubscriptionHandler
+    from client.subs_handler import SubscriptionHandler
 
     print("Testing SubscriptionHandler functionality")
     t = SubscriptionHandler()
@@ -116,15 +116,15 @@ def test():
     t.add(topic, "sendConfig")
     wrapResult(t.get, "home/login/test", IndexError)
     wrapResult(t.get, "home/login", IndexError)
-    wrapResult(t.get, "home/login/#", ("sendConfig", 0, False))
+    wrapResult(t.get, "home/login/#", "sendConfig")
 
     topic = "home/login"
     t.add(topic, "nothing")
     t.add(topic, "nothing2")
-    wrapResult(t.get, "home/login", (("nothing", "nothing2"), 0, False))
+    wrapResult(t.get, "home/login", ("nothing", "nothing2"))
 
     t.set(topic, "nothing")
-    wrapResult(t.get, "home/login", ("nothing", 0, False))
+    wrapResult(t.get, "home/login", "nothing")
 
     t.delete(topic)
     wrapResult(t.get, "home/login", IndexError)
@@ -138,29 +138,33 @@ print("Test finished")
 
 """
 >>> from micropython_iot_generic._testing.upython import subs_handler
-[RAM] [Start] 336
-[RAM] [After import] -2048 # from filesystem, not precompiled
+[RAM] [Start] 512
+[RAM] [After import] -592
 [RAM] [After handler creation] -32
 [RAM] [after creation with no Objects] 128
-[Time] Function addObjects: 534.792ms
-[RAM] [30 Objects] -4064
+[Time] Function addObjects: 522.896ms
+[RAM] [30 Objects] -3840
 [Time] Function getObject:  1.655ms
-('func9', 0, False)
+func9
 [RAM] [Subscription test done] 0
 Comparison to list
 [RAM] [List created] -32
-[Time] Function addObjectsList: 481.325ms
-[RAM] [Added 30 objects to list] -2704
-[Time] Function getObjectList:  2.286ms
+[Time] Function addObjectsList: 468.785ms
+[RAM] [Added 30 objects to list] -2992
+[Time] Function getObjectList:  2.550ms
 None
 [RAM] [List comparison done] 0
 Testing SubscriptionHandler functionality
 Success: True Expected result: <class 'IndexError'> Result: <class 'IndexError'>
 Success: True Expected result: <class 'IndexError'> Result: <class 'IndexError'>
-Success: True Expected result: ('sendConfig', 0, False) Result: ('sendConfig', 0, False)
-Success: True Expected result: (('nothing', 'nothing2'), 0, False) Result: (('nothing', 'nothing2'), 0, False)
-Success: True Expected result: ('nothing', 0, False) Result: ('nothing', 0, False)
+Success: True Expected result: ('sendConfig', False) Result: sendConfig
+Success: True Expected result: ('nothing', 'nothing2') Result: ('nothing', 'nothing2')
+Success: True Expected result: nothing Result: nothing
 Success: True Expected result: <class 'IndexError'> Result: <class 'IndexError'>
+
+Functional tests done
+
+Test finished
 
 Functional tests done
 

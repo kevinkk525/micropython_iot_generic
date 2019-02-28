@@ -33,6 +33,7 @@ class Mqtt:
         # id and ident needed as it is possible to have multiple requests that have the same ident
         # identifying the type of App but different id to distinguish the sources
         self.active = True
+        self.next = None  # needed for keeping the apps in a list
         self._subs = subs_handler.SubscriptionHandler()
         self._cbs = 0  # currently active callbacks, could be used for flow control between host, not implemented yet
         if will is not None:  # topic,payload,qos,retain #qos only for compatibility and will be removed
@@ -69,11 +70,11 @@ class Mqtt:
             topics = [topics]
         for topic in topics:
             try:
-                cbs, qos = self._subs.get(topic)
+                cbs = self._subs.get(topic)
             except IndexError:
                 if topic.endswith("/set") is False:
                     try:
-                        cbs, qos = self._subs.get(topic + "/set")
+                        cbs = self._subs.get(topic + "/set")
                         # Assume that retained state topic is not subscribed on client as it only receives one message
                     except IndexError:
                         self.print_error("Topic {!s} not subscribed".format(topic))

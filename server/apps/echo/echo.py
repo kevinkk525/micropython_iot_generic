@@ -44,6 +44,7 @@ class EchoInstance(AppInstance):
         """
         self.log.debug("Got header {!s}, data {!s}".format(header_byte, data))
         await self.write(header_byte, data)
+        await self.stop()  # one-shot instance. No need to let it live
 
 
 class Echo(App):

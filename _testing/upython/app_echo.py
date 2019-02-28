@@ -13,18 +13,17 @@ from machine import Pin
 import gc
 import time
 
-server = "192.168.178.10"
-port = 8888
+server = "192.168.178.60"
+port = 9999
 
 loop = asyncio.get_event_loop()
 
-app_handler = get_apphandler(loop, "1", server, port, verbose=True, led=Pin(2, Pin.OUT, value=1))
+app_handler = get_apphandler(loop, b"1", server, port, verbose=True, led=Pin(2, Pin.OUT, value=1))
 
 ###
 # Echo Client
 ###
-echoApp = App()
-echoApp.ident = 0
+echoApp = App
 
 
 # send message to server and get it back. Also measure delay between message and response
@@ -34,7 +33,7 @@ async def echoClient(app):
     while True:
         st = time.ticks_ms()
         try:
-            header, message = await AppTemporary(app, 0, ["echo message", count, delay, gc.mem_free()])
+            header, message = await AppTemporary(app, 0, ["echo message", count, delay, gc.mem_free()], ident=0)
         except TimeoutError:
             print("TimeoutError waiting for message")
             return

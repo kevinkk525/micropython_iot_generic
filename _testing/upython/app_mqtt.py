@@ -5,20 +5,20 @@
 __updated__ = "2019-01-02"
 __version__ = "0.0"
 
-from micropython_iot_generic.client import apphandler
-from micropython_iot_generic.client.apps.mqtt import Mqtt
+from client import apphandler
+from client.apps.mqtt import Mqtt
 
 import uasyncio as asyncio
 from machine import Pin
 import gc
 import time
 
-server = "192.168.178.10"
-port = 8888
+server = "192.168.178.60"
+port = 9999
 
 loop = asyncio.get_event_loop()
 
-app_handler = apphandler.AppHandler(loop, b"1\n", server, port, timeout=1500, verbose=True,
+app_handler = apphandler.AppHandler(loop, b"1", server, port, timeout=5000, verbose=True,
                                     led=Pin(2, Pin.OUT, value=1))
 
 ###

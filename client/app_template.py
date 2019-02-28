@@ -22,10 +22,11 @@ class App:
         Change the app ident to a unique int between 0-255
         """
         self.id = AppHandler.addInstance(self)  # get id for app
-        self.ident = -1  # integer app identifier, has to be the same on the server so he knows where to route data to
+        self.ident = 255  # integer app identifier, has to be the same on the server so he knows where to route data to
         # id and ident needed as it is possible to have multiple GET requests that have the same ident
         # identifying the type of App but different id to distinguish the sources
         self.active = True
+        self.next = None  # needed for keeping the apps in a list
 
         ####
         # Optional, either use data for awaiting app or callback
@@ -81,7 +82,7 @@ class App:
         #####
 
 
-async def AppTemporary(AppClass, header, message, timeout=120):
+async def AppTemporary(AppClass, header, message, timeout=120, ident=None):
     """
     Use this for an App like a GET request that just sends a message and waits for one answer.
     Either use this function and provide an AppClass or copy it and adapt to your needs
@@ -90,9 +91,14 @@ async def AppTemporary(AppClass, header, message, timeout=120):
     :param header: header of message if used by app. This function is very generic as an example.
     :param message: what you want to send to the server
     :param timeout: seconds, timeout waiting for an answer
+    :param ident: can set app ident if base class can be used for application. Removes the need to subclass
     :return: server response
     """
     app = AppClass()
+    if ident is not None:
+        # if the basic App class is used without modification, this ensures that an ident can
+        # be set without subclassing the basic App class just to change the ident
+        app.ident = ident
     await app.write(header, message)
     try:
         """
